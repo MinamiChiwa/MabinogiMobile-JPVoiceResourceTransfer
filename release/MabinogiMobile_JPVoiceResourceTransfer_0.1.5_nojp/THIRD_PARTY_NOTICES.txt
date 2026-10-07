@@ -1,0 +1,7 @@
+本分发包使用 UnityPy==1.25.4，依赖安装信息见 requirements.txt。
+
+本包内的 resource_cache.bin/json 和 audio/ WAV 归档来自日服客户端资源，
+仅供学习、研究和个人离线测试使用。请下载后 24 小时内自觉删除，不要上传或再分发。
+
+本最终分发包不包含 FSBank、ffmpeg、vgmstream 或运行时注入组件。完整重建直接保留
+日服已有的 FSB5 压缩数据，不需要额外音频编码器。

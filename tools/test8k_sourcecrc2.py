@@ -1,0 +1,7 @@
+import sys,json,tempfile,subprocess
+from pathlib import Path
+p=Path(r'D:\Mabimoba\release\MabinogiMobile_JPVoiceResourceTransfer_0.1.3');sys.path.insert(0,str(p));import transfer_jp_voice_resources as t
+d=json.loads((p/'resource_cache.json').read_text(encoding='utf-8'));raw=(p/'resource_cache.bin').read_bytes();x=next(x for x in d['clips'] if x['name']=='Vo_NPC_Amy_Brrrr_01');b=raw[x['offset']:x['offset']+x['size']];i=t.parse_fsb5(b);pcm,_,_=t.decode_fsb5_pcm(b);r=t.run_ffmpeg(['-f','s16le','-ar','22050','-ac','1','-i','pipe:0','-f','s16le','-ar','8000','-ac','1','pipe:1'],pcm);e=t.run_ffmpeg(['-f','s16le','-ar','8000','-ac','1','-i','pipe:0','-c:a','libvorbis','-q:a','0','-f','ogg','pipe:1'],r);pack=t.ogg_packets(e);custom=b''.join(__import__('struct').pack('<H',len(z))+z for z in pack[3:]);h=bytearray(b[:i['header_size']]);__import__('struct').pack_into('<I',h,20,len(custom));sh=bytearray(t.retarget_fsb5_template(b,1,8000)[i['sample_header_start']:i['sample_header_end']]);# keep source crc
+out=bytes(h)+bytes(sh)+b[i['sample_header_end']:i['payload_start']]+custom;td=Path(tempfile.mkdtemp());f=td/'x.fsb';f.write_bytes(out);r=subprocess.run([str(p/'vgmstream/vgmstream-cli.exe'),'-m',str(f)],capture_output=True,text=True,cwd=str(p/'vgmstream'));print(len(out),r.returncode,r.stdout,r.stderr,td)
+
+

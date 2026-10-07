@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>MabinogiMobileVoiceMod</AssemblyName>
+    <RootNamespace>MabinogiMobileVoiceMod</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="VoiceModPlugin.cs" />
+  </ItemGroup>
+
+  <!-- BepInEx 6 IL2CPP is distributed as a game-side pack rather than a NuGet package. -->
+  <!--
+    After the first disposable game launch, set BEPINEX_INTEROP to the game's
+    generated BepInEx/interop directory. Those assemblies carry the exact
+    IL2CPP array signatures. The UnityEngine.Modules fallback keeps this
+    project buildable before that generation step.
+  -->
+  <ItemGroup>
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(BEPINEX_CORE)\BepInEx.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP">
+      <HintPath>$(BEPINEX_CORE)\BepInEx.Unity.IL2CPP.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BEPINEX_CORE)\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(BEPINEX_CORE)\Il2CppInterop.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup Condition="'$(BEPINEX_INTEROP)' != ''">
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(BEPINEX_INTEROP)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(BEPINEX_INTEROP)\UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup Condition="'$(BEPINEX_INTEROP)' == ''">
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(UNITY_MODULES)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(UNITY_MODULES)\UnityEngine.AudioModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

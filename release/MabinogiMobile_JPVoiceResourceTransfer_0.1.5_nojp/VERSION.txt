@@ -1,0 +1,5 @@
+MabinogiMobile JP Voice Resource Transfer
+Version: 0.1.5-nojp
+Mode: full UnityFS/.blob rebuild
+Default test scope: all Vo_NPC_Aranwen_ clips
+Audio: supplied from the user-selected JP client; no JP audio is bundled

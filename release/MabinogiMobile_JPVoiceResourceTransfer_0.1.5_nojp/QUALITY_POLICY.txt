@@ -1,0 +1,19 @@
+Quality policy for the full-rebuild release
+
+The production tool copies the original JP FSB5 payload into a rebuilt UnityFS
+resource stream. It does not force the payload into the original TW resource
+slot and does not lower the sample rate to fit.
+
+For every changed bundle the tool updates AudioClip resource offsets and sizes,
+rebuilds the UnityFS bundle, rewrites the custom .blob cumulative end table,
+and verifies the result with UnityPy and complete FSB5 decoding. The bundle
+ordinal and count remain unchanged, so AssetPackages/index remains usable.
+
+Structural, format, metadata, source mutation, and write-back errors are hard
+failures. The tool does not silently skip a selected target. A successful
+patch-report.json has transaction_status=committed and replacement_mode=
+full-rebuild.
+
+The official 59826-obd-manifest is deliberately not modified. Launcher repair,
+integrity rejection, map loading, online checks, and anti-cheat behavior remain
+client/service policy and are not guaranteed by this offline tool.

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>MabinogiMobileVoiceMod.RegistrationFix.Bootstrap</AssemblyName>
+    <RootNamespace>MabinogiMobileVoiceMod.RegistrationFix.Bootstrap</RootNamespace>
+    <DebugType>embedded</DebugType>
+    <OutputPath>..\..\dependencies\RegistrationFix-build\</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="RegistrationFix.cs" />
+    <Reference Include="Cpp2IL.Core" HintPath="..\..\dependencies\be788-extract\BepInEx\core\Cpp2IL.Core.dll" />
+    <Reference Include="LibCpp2IL" HintPath="..\..\dependencies\be788-extract\BepInEx\core\LibCpp2IL.dll" />
+  </ItemGroup>
+</Project>

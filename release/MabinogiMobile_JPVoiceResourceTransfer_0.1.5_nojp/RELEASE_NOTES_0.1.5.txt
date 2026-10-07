@@ -1,0 +1,20 @@
+0.1.5 release notes
+
+This package uses the validated full-rebuild route. JP FSB5 payloads are kept
+at their original quality and appended to rebuilt UnityFS resource streams;
+the affected .blob cumulative end tables are updated automatically.
+
+The selected target set is a hard requirement: structural, format, metadata,
+and write-back validation errors remain hard failures with exit code 2. The
+official manifest is not modified, so launcher/integrity acceptance is not
+guaranteed.
+
+The main entry point is a multilingual Tk window with step-by-step instructions,
+a separate risk notice, and one voluntary sponsorship button that opens the
+Afdian or Patreon choice window. An existing empty output folder is supported;
+non-empty output folders are rejected.
+
+While a transfer is running, the window shows the detected scan or rebuild
+progress and provides a Stop button. A stopped run must be treated as incomplete.
+
+This no-JP distribution does not include the JP voice cache or WAV archive. A JP client directory is required.

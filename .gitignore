@@ -1,0 +1,39 @@
+# Generated Python/runtime files
+__pycache__/
+*.py[cod]
+*.log
+.pytest_cache/
+
+# Game clients, diagnostic copies, and downloaded dependencies
+diagnostic/
+dependencies/
+external/
+tools/python-fsb5/
+tools/vgmstream-src/
+tools/fsb5dll/
+tools/libvorbis-1.3.2/
+tools/*.tar.gz
+
+# The full distribution contains the JP audio archive and compressed JP cache.
+# Keep it local only; the no-JP distribution is the publishable package.
+release/MabinogiMobile_JPVoiceResourceTransfer_0.1.5/
+release/MabinogiMobile_JPVoiceResourceTransfer_0.1.5.zip
+release/JPVoiceResourceTransfer_0.1.5_update.zip
+release/**/.jp-scan-cache/
+release/**/audio/
+release/**/resource_cache.bin
+release/**/resource_cache.json
+
+# Keep the small no-JP package and its release assets in the repository.
+!release/MabinogiMobile_JPVoiceResourceTransfer_0.1.5_nojp/
+!release/MabinogiMobile_JPVoiceResourceTransfer_0.1.5_nojp/**
+!release/MabinogiMobile_JPVoiceResourceTransfer_0.1.5_nojp.zip
+!release/JPVoiceResourceTransfer_0.1.5_nojp_update.zip
+
+# Local build output and editor files
+plugin/bin/
+plugin/obj/
+**/bin/
+**/obj/
+*.user
+*.suo
