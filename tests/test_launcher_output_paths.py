@@ -92,6 +92,21 @@ class LauncherOutputDirectoryTests(unittest.TestCase):
         self.assertEqual(self.notifications, [])
         self.assertFalse(destination.exists())
 
+    def test_browse_normalizes_forward_slashes_for_windows_display(self):
+        picker_value = str(self.source).replace("\\", "/")
+
+        def actions():
+            widgets = self.window.winfo_children()[0].winfo_children()
+            source_browse = next(widget for widget in widgets
+                                 if isinstance(widget, self.ttk.Button)
+                                 and int(widget.grid_info()["row"]) == 2)
+            source_browse.invoke()
+            self.assertEqual(self.entries[2].get(), str(self.source))
+
+        self.exercise_gui(actions, picker_value)
+        self.assertEqual(self.commands, [])
+        self.assertEqual(self.notifications, [])
+
     def test_manual_empty_exact_launcher_folder_starts_without_renaming(self):
         destination = self.root / "MabinogiMobile_TW"
         destination.mkdir()

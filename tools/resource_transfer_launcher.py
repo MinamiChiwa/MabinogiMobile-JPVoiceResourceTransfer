@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import multiprocessing
+import ntpath
 import os
 from pathlib import Path
 import queue
@@ -20,6 +21,12 @@ import webbrowser
 
 from portable_runtime import install_source_dependencies, package_root, self_check, terminate_worker_tree, worker_command
 from output_paths import OutputPathError, validate_output_directory
+
+
+def display_windows_path(value: str) -> str:
+    """Render Windows paths consistently even when a picker returns `/`."""
+    value = value.strip()
+    return ntpath.normpath(value) if value else value
 
 
 def start_gui_worker(command: list[str], root: Path, environment: dict[str, str],
@@ -433,14 +440,16 @@ def run_gui(root_dir: Path, language: str = "zh-Hans") -> int:
     def browse_directory(key: str) -> None:
         selected = filedialog.askdirectory(parent=win, mustexist=key != "out")
         if selected:
-            vars_[key].set(selected)
+            vars_[key].set(display_windows_path(selected))
             if key == "out":
                 validate_output_selection()
 
     for row, key in enumerate(("jp", "tw", "out"), 1):
         label_text = ui_text["jp_label"] if key == "jp" and not bundled_cache_available else tr[key]
         ttk.Label(frame, text=label_text).grid(row=row, column=0, sticky="w", pady=5)
-        ttk.Entry(frame, textvariable=vars_[key]).grid(row=row, column=1, columnspan=2, sticky="ew", pady=5)
+        entry = ttk.Entry(frame, textvariable=vars_[key])
+        entry.grid(row=row, column=1, columnspan=2, sticky="ew", pady=5)
+        entry.bind("<FocusOut>", lambda _event, k=key: vars_[k].set(display_windows_path(vars_[k].get())))
         ttk.Button(frame, text=tr["browse"], command=lambda k=key: browse_directory(k)).grid(row=row, column=3, padx=5)
         if key == "jp":
             jp_hint = ui_text["jp_hint_required"] if not bundled_cache_available else tr["jp_hint"]
@@ -564,7 +573,10 @@ def run_gui(root_dir: Path, language: str = "zh-Hans") -> int:
     stop_btn.configure(command=stop_transfer)
 
     def start() -> None:
-        tw, out, jp = vars_["tw"].get().strip(), vars_["out"].get().strip(), vars_["jp"].get().strip()
+        tw = display_windows_path(vars_["tw"].get())
+        out = display_windows_path(vars_["out"].get())
+        jp = display_windows_path(vars_["jp"].get())
+        vars_["tw"].set(tw); vars_["out"].set(out); vars_["jp"].set(jp)
         if not tw or not out:
             messagebox.showerror(tr["risk"], tr["required"]); return
         if not jp and not bundled_cache_available:
