@@ -1,0 +1,18 @@
+MabinogiMobile JP Voice Resource Transfer 0.1.6.2
+
+公开发布包：Windows x64 portable nojp
+
+新增：
+- 内置 Python、Tk、UnityPy、FMOD/FSB5 解码和多进程运行环境，不需要安装 Python 或 pip。
+- 分阶段进度：台服扫描、日服来源、复制、替换/校验、报告收尾。
+- 成功后固定 100% 并弹窗；失败、取消和过期事件不会误报完成。
+- Windows 停止操作会终止资源进程及其扫描子进程。
+- 输出目录支持已有空的 MabinogiMobile_TW，路径显示统一为 Windows 反斜杠。
+- 非空输出目录显示实际内容并拒绝覆盖；来源目录、工具目录及其子目录会被保护。
+- 报告区分音频替换、来源音频相同、仅元数据调整和质量跳过。
+- 增加完整语音覆盖审计工具和回归测试。
+
+限制：
+- 公开包不含日服客户端、resource_cache.bin/json 或 WAV 归档；请使用用户自己合法取得的来源。
+- 当前工具缓存中 Flora 的 OpenShop_01、Thank_01、Wow_01、Wow_02 与台服原音频相同，无法凭现有来源补齐不同的日语音频。
+- 使用前请关闭游戏和更新器，并在可丢弃的客户端副本中验证。
