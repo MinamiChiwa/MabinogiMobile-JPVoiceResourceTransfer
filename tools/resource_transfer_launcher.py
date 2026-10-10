@@ -19,6 +19,7 @@ from typing import TextIO
 import webbrowser
 
 from portable_runtime import install_source_dependencies, package_root, self_check, terminate_worker_tree, worker_command
+from output_paths import OutputPathError, validate_output_directory
 
 
 def start_gui_worker(command: list[str], root: Path, environment: dict[str, str],
@@ -159,6 +160,38 @@ def run_gui(root_dir: Path, language: str = "zh-Hans") -> int:
         "zh-Hant": {"title":"Mabinogi Mobile 日服語音資源替換", "jp":"日服目錄（可選）", "tw":"台服目錄（包含 appdata）", "out":"輸出目錄（新目錄）", "browse":"瀏覽", "start":"開始替換", "help":"使用說明", "risk":"風險提示", "scope":"語音範圍", "aranwen":"阿蘭雯（預設）", "all":"全部語音（ALL）", "limit":"最多數量（0=全部）", "ready":"請選擇目錄後開始。原始客戶端唯讀，輸出會寫入新目錄。", "running":"處理中，請勿關閉視窗…", "done":"處理完成，詳情請查看 patch-report.json。", "failed":"處理失敗，請查看日誌和輸出目錄。", "sponsor":"支持作者", "jp_hint":"留空將使用套件內日服語音快取。", "required":"台服和輸出目錄不能為空。", "integer":"最多數量必須是整數。", "existing":"輸出目錄已存在且不為空，請選擇空資料夾或新目錄。", "close_running":"替換仍在進行，請完成後再關閉視窗。", "risk_text":"完整重建會改變 .blob 檔案大小、偏移和雜湊。請使用可丟棄副本和測試帳號；啟動器可能修復或拒絕修改檔案。官方 manifest 不會被修改。"},
         "en": {"title":"Mabinogi Mobile JP Voice Resource Transfer", "jp":"JP client directory (optional)", "tw":"TW client directory (contains appdata)", "out":"Output directory (new folder)", "browse":"Browse", "start":"Start transfer", "help":"Instructions", "risk":"Risk notice", "scope":"Voice scope", "aranwen":"Aranwen (default)", "all":"All voices (ALL)", "limit":"Maximum clips (0=all)", "ready":"Choose the directories and start. Source clients are read-only; output is written to a new folder.", "running":"Working; please keep this window open…", "done":"Completed. See patch-report.json for details.", "failed":"The transfer failed. Check the log and output folder.", "sponsor":"Support the author", "jp_hint":"Leave blank to use the bundled JP voice cache.", "required":"TW and output directories are required.", "integer":"Maximum clips must be an integer.", "existing":"The output folder already exists and is not empty. Choose an empty or new folder.", "close_running":"The transfer is still running. Wait for it to finish before closing this window.", "risk_text":"Full rebuild changes .blob sizes, offsets, and hashes. Use a disposable copy and test account; the launcher may repair or reject modified files. The official manifest is not changed."},
     }[language]
+    tr.update({
+        "zh-Hans": {
+            "out": "输出目录（空/新游戏根目录）",
+            "output_hint": "输出保留所选目录名（如 MabinogiMobile_TW）；请选空目录或输入尚不存在的目录。",
+            "existing": "输出目录 {path} 已有内容：{entries}\n请先将原客户端移到其他备份位置，再使用空的输出目录。工具不会删除或重命名文件。",
+            "source_overlap": "输出目录 {path} 与源客户端 {source} 相同或位于其内部。请选择源目录外的空目录。",
+            "tool_overlap": "输出目录 {path} 与工具目录相同或位于其内部。请选择工具目录外的空目录。",
+            "not_directory": "输出路径 {path} 不是文件夹，或其父路径是文件。",
+            "unreadable": "无法读取输出路径 {path}，请检查权限。",
+            "appdata_notice": "已将 appdata 选择规范化为实际游戏根目录：{path}",
+        },
+        "zh-Hant": {
+            "out": "輸出目錄（空/新遊戲根目錄）",
+            "output_hint": "輸出保留所選目錄名（如 MabinogiMobile_TW）；請選空目錄或輸入尚不存在的目錄。",
+            "existing": "輸出目錄 {path} 已有內容：{entries}\n請先將原客戶端移到其他備份位置，再使用空的輸出目錄。工具不會刪除或重新命名檔案。",
+            "source_overlap": "輸出目錄 {path} 與來源客戶端 {source} 相同或位於其內部。請選擇來源目錄外的空目錄。",
+            "tool_overlap": "輸出目錄 {path} 與工具目錄相同或位於其內部。請選擇工具目錄外的空目錄。",
+            "not_directory": "輸出路徑 {path} 不是資料夾，或其父路徑是檔案。",
+            "unreadable": "無法讀取輸出路徑 {path}，請檢查權限。",
+            "appdata_notice": "已將 appdata 選擇規範化為實際遊戲根目錄：{path}",
+        },
+        "en": {
+            "out": "Output (empty/new game root)",
+            "output_hint": "Output keeps the selected folder name (e.g. MabinogiMobile_TW). Choose an empty folder or enter a new path.",
+            "existing": "Output directory {path} already contains: {entries}\nMove the original client to another backup location first, then use an empty output directory. The tool does not delete or rename files.",
+            "source_overlap": "Output directory {path} is the source client {source} or is inside it. Choose an empty directory outside the source.",
+            "tool_overlap": "Output directory {path} is the tool directory or is inside it. Choose an empty directory outside the tool.",
+            "not_directory": "Output path {path} is not a directory, or one of its parents is a file.",
+            "unreadable": "Cannot read output path {path}; check permissions.",
+            "appdata_notice": "The appdata selection was normalized to the actual game root: {path}",
+        },
+    }[language])
     bundled_cache_available = all(
         (root_dir / name).is_file() for name in ("resource_cache.bin", "resource_cache.json")
     )
@@ -379,11 +412,36 @@ def run_gui(root_dir: Path, language: str = "zh-Hans") -> int:
             restart_code["code"] = run_gui(root_dir, selected)
     lang_box.bind("<<ComboboxSelected>>", change_language)
     vars_ = {k: tk.StringVar() for k in ("jp", "tw", "out")}
+    def validate_output_selection() -> Path | None:
+        selected = vars_["out"].get().strip()
+        try:
+            output = validate_output_directory(
+                selected, [vars_["tw"].get().strip(), vars_["jp"].get().strip()], root_dir,
+            )
+        except OutputPathError as exc:
+            entries = ", ".join(exc.entries) + (", …" if exc.more_entries else "")
+            text = tr["existing" if exc.code == "nonempty" else exc.code].format(
+                path=exc.path, source=exc.source, entries=entries,
+            )
+            messagebox.showerror(tr["risk"], text, parent=win)
+            return None
+        vars_["out"].set(str(output))
+        if Path(selected).name.casefold() == "appdata":
+            messagebox.showinfo(tr["title"], tr["appdata_notice"].format(path=output), parent=win)
+        return output
+
+    def browse_directory(key: str) -> None:
+        selected = filedialog.askdirectory(parent=win, mustexist=key != "out")
+        if selected:
+            vars_[key].set(selected)
+            if key == "out":
+                validate_output_selection()
+
     for row, key in enumerate(("jp", "tw", "out"), 1):
         label_text = ui_text["jp_label"] if key == "jp" and not bundled_cache_available else tr[key]
         ttk.Label(frame, text=label_text).grid(row=row, column=0, sticky="w", pady=5)
         ttk.Entry(frame, textvariable=vars_[key]).grid(row=row, column=1, columnspan=2, sticky="ew", pady=5)
-        ttk.Button(frame, text=tr["browse"], command=lambda k=key: vars_[k].set(filedialog.askdirectory() or vars_[k].get())).grid(row=row, column=3, padx=5)
+        ttk.Button(frame, text=tr["browse"], command=lambda k=key: browse_directory(k)).grid(row=row, column=3, padx=5)
         if key == "jp":
             jp_hint = ui_text["jp_hint_required"] if not bundled_cache_available else tr["jp_hint"]
             ttk.Label(frame, text=jp_hint).grid(row=row, column=4, sticky="w")
@@ -393,7 +451,7 @@ def run_gui(root_dir: Path, language: str = "zh-Hans") -> int:
     ttk.Radiobutton(frame, text=tr["all"], variable=scope, value="all").grid(row=4, column=2, sticky="w")
     ttk.Label(frame, text=tr["limit"]).grid(row=5, column=0, sticky="w", pady=5)
     limit_var = tk.StringVar(value="0"); ttk.Entry(frame, textvariable=limit_var, width=10).grid(row=5, column=1, sticky="w")
-    status = tk.StringVar(value=tr["ready"]); ttk.Label(frame, textvariable=status, wraplength=700).grid(row=6, column=0, columnspan=5, sticky="w", pady=10)
+    status = tk.StringVar(value=tr["output_hint"] + "\n" + tr["ready"]); ttk.Label(frame, textvariable=status, wraplength=700).grid(row=6, column=0, columnspan=5, sticky="w", pady=10)
     progress_text = tk.StringVar(value=ui_text["progress_idle"])
     ttk.Label(frame, textvariable=progress_text, wraplength=700).grid(row=7, column=0, columnspan=5, sticky="w")
     progress_widget = ttk.Progressbar(frame, orient="horizontal", mode="determinate", maximum=100, value=0)
@@ -511,14 +569,10 @@ def run_gui(root_dir: Path, language: str = "zh-Hans") -> int:
             messagebox.showerror(tr["risk"], tr["required"]); return
         if not jp and not bundled_cache_available:
             messagebox.showerror(tr["risk"], ui_text["jp_required"]); return
-        out_path = Path(out).expanduser()
-        if out_path.exists():
-            try:
-                output_has_files = any(out_path.iterdir())
-            except (OSError, NotADirectoryError):
-                output_has_files = True
-            if output_has_files:
-                messagebox.showerror(tr["risk"], tr["existing"]); return
+        out_path = validate_output_selection()
+        if out_path is None:
+            return
+        out = str(out_path)
         try: limit = int(limit_var.get() or "0")
         except ValueError: messagebox.showerror(tr["risk"], tr["integer"]); return
         if limit < 0:

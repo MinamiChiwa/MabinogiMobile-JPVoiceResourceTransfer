@@ -2,13 +2,13 @@
 
 这是一个离线资源包重建工具：从用户选择的日服客户端读取 FSB5 语音，复制台服客户端到新的输出目录，再重建受影响的 UnityFS/.blob 资源包。原始日服和台服目录只读，官方 manifest 不会被修改。
 
-当前维护版本是 **0.1.6**。Windows x64 便携包包含 Python、Tk 和依赖，完整解压后直接运行，无需安装 Python、pip 或联网。公开分发包不包含客户端语音；选择自己的日服目录，或将自己已有的 `resource_cache.bin` 和 `resource_cache.json` 放在程序旁边。
+当前维护版本是 **0.1.6.1**。Windows x64 便携包包含 Python、Tk 和依赖，完整解压后直接运行，无需安装 Python、pip 或联网。公开分发包不包含客户端语音；选择自己的日服目录，或将自己已有的 `resource_cache.bin` 和 `resource_cache.json` 放在程序旁边。
 
 ## 普通用户使用
 
-1. 完整解压 `MabinogiMobile_JPVoiceResourceTransfer_0.1.6_portable_nojp.zip`，保留 `_internal` 目录。
+1. 完整解压 `MabinogiMobile_JPVoiceResourceTransfer_0.1.6.1_portable_nojp.zip`，保留 `_internal` 目录。
 2. 双击 `run_transfer.bat` 或 `JPVoiceTransfer.exe`。`install_dependencies.bat` 在便携包中只做离线运行环境检查。
-3. 在窗口中选择日服客户端根目录、台服目录和空的输出目录。
+3. 在窗口中选择日服客户端根目录、台服目录和空的输出目录。输出名称原样保留，已有空的 `MabinogiMobile_TW` 可以直接使用；台服来源应选择另一份纯净副本，例如 `MabinogiMobile_TW-back`。尚不存在的输出路径也支持。
 4. 默认范围是 `Vo_NPC_Aranwen_`（阿蘭雯）语音；选择全部语音可进行全量替换。
 5. 点击开始并等待报告完成。运行中可以点击停止；停止后的输出副本不能直接使用。
 6. 等待扫描、复制、替换和校验、报告收尾各阶段完成。成功后进度固定100%并弹窗；取消或失败的副本不能作为完成品。
