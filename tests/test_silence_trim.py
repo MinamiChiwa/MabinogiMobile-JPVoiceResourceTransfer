@@ -8,7 +8,7 @@ import sys
 import unittest
 
 
-PACKAGE = Path(__file__).resolve().parents[1] / "release" / "MabinogiMobile_JPVoiceResourceTransfer_0.1.5"
+PACKAGE = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(PACKAGE))
 import transfer_jp_voice_resources as transfer  # noqa: E402
 

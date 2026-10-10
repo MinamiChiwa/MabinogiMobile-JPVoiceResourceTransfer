@@ -35,6 +35,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from resource_progress import emit_progress
+from portable_runtime import package_root
+
 
 UNITY_SIGNATURE = b"UnityFS"
 VOICE_TOKEN = re.compile(r"(?:^|[_/])vo(?:[_/]|$)", re.IGNORECASE)
@@ -989,6 +992,7 @@ def validate_already_identical(
     jp: JPClip,
     resource_bytes: bytes,
     capacity: int,
+    validator: Any = None,
 ) -> dict[str, Any] | None:
     """Verify an exact resource/metadata match without requiring any rewrite."""
     length = float(getattr(clip, "m_Length", 0.0) or 0.0)
@@ -999,13 +1003,56 @@ def validate_already_identical(
         or length != jp.length
     ):
         return None
-    return validate_fsb5_payload(
+    validate = validator or validate_fsb5_payload
+    return validate(
         resource_bytes,
         expected_duration=jp.length,
         expected_channels=jp.signature.get("channels"),
         expected_frequency=jp.signature.get("frequency"),
         max_bytes=capacity,
     )
+
+
+def validate_fsb5_payload_fmod(
+    data: bytes,
+    expected_duration: float,
+    expected_channels: int | None = None,
+    expected_frequency: int | None = None,
+    max_bytes: int | None = None,
+) -> dict[str, Any]:
+    """Verify unchanged full-rebuild resources with UnityPy's existing decoder."""
+    import fmod_toolkit
+
+    if max_bytes is not None and len(data) > max_bytes:
+        raise ValueError(f"FSB5 payload exceeds capacity ({len(data)} > {max_bytes})")
+    info = parse_fsb5(data)
+    cache_key = ("fmod", sha256_bytes(data), expected_duration, expected_channels, expected_frequency, max_bytes)
+    if cache_key in _VALIDATED_PAYLOADS:
+        return dict(_VALIDATED_PAYLOADS[cache_key])
+    samples = fmod_toolkit.raw_to_wav(data, "voice-validation", info["channels"], info["frequency"])
+    if len(samples) != 1:
+        raise ValueError("FMOD did not return exactly one decoded AudioClip")
+    with wave.open(io.BytesIO(next(iter(samples.values()))), "rb") as decoded:
+        channels = decoded.getnchannels()
+        frequency = decoded.getframerate()
+        frames = decoded.getnframes()
+        pcm = decoded.readframes(frames)
+        if decoded.getsampwidth() != 2 or not pcm or len(pcm) != frames * channels * 2:
+            raise ValueError("FMOD returned an incomplete 16-bit PCM frame layout")
+    if channels != info["channels"] or frequency != info["frequency"]:
+        raise ValueError("FMOD output does not match FSB5 channel/frequency metadata")
+    if frames != info["sample_count"]:
+        raise ValueError(f"FMOD decoded {frames} frames, FSB5 header declares {info['sample_count']}")
+    if expected_channels is not None and channels != expected_channels:
+        raise ValueError("decoded channel count does not match AudioClip metadata")
+    if expected_frequency is not None and frequency != expected_frequency:
+        raise ValueError("decoded frequency does not match AudioClip metadata")
+    duration = frames / frequency
+    if not math.isfinite(expected_duration) or abs(duration - expected_duration) > (1.0 / frequency) + 1e-6:
+        raise ValueError(f"decoded full duration differs from source ({duration:.6f}s vs {expected_duration:.6f}s)")
+    result = {"channels": channels, "frequency": frequency, "frames": frames, "duration": duration, "bytes": len(data)}
+    _VALIDATED_PAYLOADS[cache_key] = dict(result)
+    return result
 
 
 @dataclass
@@ -1262,12 +1309,15 @@ def scan_jp(
     by_full: dict[tuple[str, str], JPClip] = {}
     by_name: dict[str, list[JPClip]] = defaultdict(list)
     blobs = list(iter_blob_files(root))
+    emit_progress("scan_jp", 0, len(blobs), unit="files", enabled=progress)
+    scanned = 0
     bundles = 0
     audio_objects = 0
     skipped = 0
     engines: set[str] = set()
     wanted_names = {name.casefold() for name in (wanted_names or set())}
     for index, blob_path in enumerate(blobs, 1):
+        scanned = index
         blob_data = blob_path.read_bytes()
         relative_blob = str(blob_path.relative_to(root)).replace("\\", "/")
         for bundle_offset, bundle_data in iter_unityfs_slices(blob_data):
@@ -1334,11 +1384,13 @@ def scan_jp(
                     skipped += 1
                     print(f"WARN JP AudioClip read failed {relative_blob}@{bundle_offset}: {exc}", file=sys.stderr)
         if progress and (index == 1 or index % 25 == 0 or index == len(blobs)):
+            emit_progress("scan_jp", index, len(blobs), unit="files", enabled=progress)
             print(f"JP [{index}/{len(blobs)}] clips={len(by_full)} bundles={bundles}", flush=True)
         if wanted_names and wanted_names.issubset(by_name):
             if progress:
                 print(f"JP target names found after {index}/{len(blobs)} blobs", flush=True)
             break
+    emit_progress("scan_jp", scanned, len(blobs), unit="files", complete=True, enabled=progress)
     stats = {
         "blob_count": len(blobs),
         "bundle_count": bundles,
@@ -1365,10 +1417,13 @@ def scan_tw_targets(
     priority_targets: list[TWClip] = []
     fallback_targets: list[TWClip] = []
     blobs = list(iter_blob_files(root))
+    emit_progress("scan_tw", 0, len(blobs), unit="files", enabled=progress)
+    scanned = 0
     bundles = 0
     audio_objects = 0
     engines: set[str] = set()
     for index, blob_path in enumerate(blobs, 1):
+        scanned = index
         relative_blob = str(blob_path.relative_to(root)).replace("\\", "/")
         if blob_filter is not None and relative_blob.casefold() not in blob_filter:
             continue
@@ -1416,14 +1471,18 @@ def scan_tw_targets(
                             "priority_target_count": len(priority_targets),
                             "engine_versions": sorted(engines),
                         }
+                        emit_progress("scan_tw", index, len(blobs), unit="files", complete=True, enabled=progress)
                         return selected, stats
                     if max_clips > 0 and priority is None and len(targets) >= max_clips:
                         stats = {"blob_count": len(blobs), "bundle_count": bundles, "audio_object_count": audio_objects, "selected_target_count": len(targets), "engine_versions": sorted(engines)}
+                        emit_progress("scan_tw", index, len(blobs), unit="files", complete=True, enabled=progress)
                         return targets, stats
                 except Exception as exc:
                     print(f"WARN TW AudioClip read failed {relative_blob}@{bundle_offset}: {exc}", file=sys.stderr)
         if progress and (index == 1 or index % 25 == 0 or index == len(blobs)):
+            emit_progress("scan_tw", index, len(blobs), unit="files", enabled=progress)
             print(f"TW [{index}/{len(blobs)}] targets={len(targets)} bundles={bundles}", flush=True)
+    emit_progress("scan_tw", scanned, len(blobs), unit="files", complete=True, enabled=progress)
     if priority and max_clips > 0:
         targets = priority_targets[:max_clips]
         if len(targets) < max_clips:
@@ -1605,7 +1664,18 @@ def copy_client(source: Path, destination: Path) -> None:
             raise ValueError(f"Output copy already exists and is not empty: {destination}")
     else:
         destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, destination, dirs_exist_ok=True)
+    total = sum(len(files) for _, _, files in os.walk(source))
+    copied = 0
+    emit_progress("copy", 0, total, unit="files")
+    def copy_file(source_file: str, target_file: str) -> str:
+        nonlocal copied
+        result = shutil.copy2(source_file, target_file)
+        copied += 1
+        if copied < total:
+            emit_progress("copy", copied, total, unit="files")
+        return result
+    shutil.copytree(source, destination, dirs_exist_ok=True, copy_function=copy_file)
+    emit_progress("copy", copied, total, unit="files", complete=True)
 
 
 def hardlink_client(source: Path, destination: Path) -> None:
@@ -1616,6 +1686,8 @@ def hardlink_client(source: Path, destination: Path) -> None:
     outside the package directories are copied normally so launcher and client
     metadata cannot write through to the clean source.
     """
+    if not source.is_dir():
+        raise FileNotFoundError(f"Source client directory is missing: {source}")
     if destination.exists():
         if any(destination.iterdir()):
             raise ValueError(f"Output copy already exists and is not empty: {destination}")
@@ -1623,6 +1695,9 @@ def hardlink_client(source: Path, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
     package_roots = {name.casefold() for name in PACKAGE_DIRS}
     package_level = 1 if (source / "appdata").is_dir() else 0
+    total = sum(len(files) for _, _, files in os.walk(source))
+    copied = 0
+    emit_progress("copy", 0, total, unit="files")
     for current, dirs, files in os.walk(source):
         current_path = Path(current)
         relative = current_path.relative_to(source)
@@ -1635,15 +1710,21 @@ def hardlink_client(source: Path, destination: Path) -> None:
         for filename in files:
             source_file = current_path / filename
             target_file = target_dir / filename
+            linked = False
             if inside_packages:
                 try:
                     os.link(source_file, target_file)
-                    continue
+                    linked = True
                 except OSError:
                     # Cross-volume or unsupported filesystems fall back to a
                     # normal copy; correctness is more important than speed.
                     pass
-            shutil.copy2(source_file, target_file)
+            if not linked:
+                shutil.copy2(source_file, target_file)
+            copied += 1
+            if copied < total:
+                emit_progress("copy", copied, total, unit="files", operation="hardlink" if linked else "copy")
+    emit_progress("copy", copied, total, unit="files", complete=True)
 
 
 def json_dump(path: Path, value: Any) -> None:
@@ -1910,10 +1991,15 @@ def write_replacement_summary(output_data_root: Path, reports: list[dict[str, An
     """Write a human-readable list so a small test batch can be located in-game."""
     replaced = [item for item in reports if item.get("status") == "replaced"]
     identical = [item for item in reports if item.get("status") == "already_identical"]
+    metadata_adjusted = [item for item in reports if item.get("status") == "metadata_adjusted"]
+    unchanged_source = [item for item in reports if item.get("source_payload_identical") is True]
     lines = [
         "Mabinogi Mobile JP voice replacement summary",
         f"Replaced clips: {len(replaced)}",
         f"Already identical and fully verified (no rewrite): {len(identical)}",
+        f"Metadata adjusted without changing audio payload: {len(metadata_adjusted)}",
+        f"Source audio identical to original TW payload: {len(unchanged_source)}",
+        "Source equality alone does not identify the spoken language.",
         "",
         "The first test batch is selected by the tool's scan order. Names below are",
         "the Unity AudioClip names; they identify the cutscene/quest and VO sequence.",
@@ -1933,6 +2019,10 @@ def write_replacement_summary(output_data_root: Path, reports: list[dict[str, An
                 f"bundle={item.get('blob', '')}@{item.get('bundle_offset', '')} | "
                 f"resource={item.get('new_resource_size', '')} bytes"
             )
+    if unchanged_source:
+        lines.extend(["", "Source audio identical to original TW payload; no audio-language change is established:"])
+        for item in unchanged_source:
+            lines.append(f"- {item.get('name', '')} | status={item.get('status', '')} | source={item.get('jp_source_blob', '')}")
     skipped_quality = [item for item in reports if item.get("status") == "skipped_quality"]
     if skipped_quality:
         lines.extend([
@@ -2067,6 +2157,7 @@ def replace_matches_preserve_structure(
     for match in matches:
         grouped[match["tw"].blob_path].append(match)
     print(f"Preparing {len(grouped)} blob batches.", flush=True)
+    emit_progress("replace", 0, len(grouped), unit="blobs", complete=not grouped)
     reports: list[dict[str, Any]] = []
     staged_blobs: dict[Path, Path] = {}
     original_hashes: dict[Path, str] = {}
@@ -2075,6 +2166,7 @@ def replace_matches_preserve_structure(
     for blob_index, (source_blob, blob_matches) in enumerate(grouped.items(), 1):
         relative = source_blob.relative_to(output_root)
         print(f"Preparing blob {blob_index}/{len(grouped)}: {relative}", flush=True)
+        emit_progress("replace", blob_index - 1, len(grouped), unit="blobs", operation="rebuild")
         original_blob = source_blob.read_bytes()
         original_blob_hash = sha256_bytes(original_blob)
         slices = list(iter_unityfs_slices(original_blob))
@@ -2167,6 +2259,8 @@ def replace_matches_preserve_structure(
                     })
                     continue
                 original_payload = bytes(env.file.files[resource_name].bytes)[old_offset : old_offset + old_size]
+                match["_original_resource_sha256"] = sha256_bytes(original_payload)
+                match["_source_payload_identical"] = original_payload == jp.resource_bytes
                 try:
                     identical_validation = validate_already_identical(clip, jp, original_payload, old_size)
                 except Exception as exc:
@@ -2193,6 +2287,8 @@ def replace_matches_preserve_structure(
                         "resource_storage_mode": "unchanged",
                         "resource_storage_offset": old_offset,
                         "new_resource_sha256": sha256_bytes(original_payload),
+                        "original_resource_sha256": match["_original_resource_sha256"],
+                        "source_payload_identical": True,
                         "jp_source_blob": jp.source_blob,
                         "jp_source_bundle_offset": jp.source_offset,
                         "output_channels": jp.signature.get("channels"),
@@ -2512,6 +2608,8 @@ def replace_matches_preserve_structure(
                     "resource_storage_offset": resource_storage_offsets[(target.assets_file.name, int(target.path_id))],
                     "bundle_size": len(bundle_data),
                     "new_resource_sha256": sha256_bytes(payload),
+                    "original_resource_sha256": match["_original_resource_sha256"],
+                    "source_payload_identical": match["_source_payload_identical"],
                     "jp_source_blob": jp.source_blob,
                     "jp_source_bundle_offset": jp.source_offset,
                     "compression_quality": compression_quality,
@@ -2566,6 +2664,7 @@ def replace_matches_preserve_structure(
             staged_blobs[source_blob.resolve()] = staged_blob.resolve()
             original_hashes[source_blob.resolve()] = original_blob_hash
             print(f"Prepared structure-preserving blob: {relative} ({len(replacements)} bundles)", flush=True)
+        emit_progress("replace", blob_index, len(grouped), unit="blobs", complete=blob_index == len(grouped), operation="verified")
     for match in matches:
         if id(match) not in processed_matches:
             tw = match["tw"]
@@ -2611,7 +2710,9 @@ def replace_matches(
     warnings: list[str] = []
     backup_root = output_root / ".MabinogiMobileVoiceMod_backup"
     backup_root.mkdir(parents=True, exist_ok=True)
-    for source_blob, blob_matches in grouped.items():
+    emit_progress("replace", 0, len(grouped), unit="blobs", complete=not grouped)
+    for blob_index, (source_blob, blob_matches) in enumerate(grouped.items(), 1):
+        emit_progress("replace", blob_index - 1, len(grouped), unit="blobs", operation="rebuild")
         relative = source_blob.relative_to(output_root)
         data = source_blob.read_bytes()
         slices = list(iter_unityfs_slices(data))
@@ -2644,18 +2745,43 @@ def replace_matches(
                 if resource_name not in env.file.files:
                     reports.append({"name": tw.name, "container": tw.container, "status": "skipped", "reason": "TW resource file missing"})
                     continue
-                if resource_name not in resource_buffers:
-                    original = bytes(env.file.files[resource_name].bytes)
-                    resource_buffers[resource_name] = bytearray(original)
-                    resource_flags[resource_name] = (int(getattr(env.file.files[resource_name], "flags", 0)), str(getattr(env.file.files[resource_name], "endian", ">")))
-                buffer = resource_buffers[resource_name]
-                new_offset = aligned(len(buffer))
-                if new_offset > len(buffer):
-                    buffer.extend(b"\0" * (new_offset - len(buffer)))
+                original = bytes(env.file.files[resource_name].bytes)
+                old_offset = int(getattr(resource, "m_Offset", 0) or 0)
                 old_size = int(getattr(resource, "m_Size", 0) or 0)
-                buffer.extend(jp.resource_bytes)
-                resource.m_Offset = new_offset
-                resource.m_Size = len(jp.resource_bytes)
+                if old_offset < 0 or old_size <= 0 or old_offset + old_size > len(original):
+                    raise ValueError(f"Original AudioClip resource range is invalid: {tw.name}")
+                original_payload = original[old_offset:old_offset + old_size]
+                source_identical = original_payload == jp.resource_bytes
+                original_sha256 = sha256_bytes(original_payload)
+                identical_validation = validate_already_identical(
+                    clip, jp, original_payload, old_size, validator=validate_fsb5_payload_fmod,
+                )
+                if identical_validation is not None:
+                    reports.append({
+                        "name": tw.name, "container": tw.container, "status": "already_identical",
+                        "reason": "source audio and AudioClip metadata are identical; complete FMOD decode verified; no rewrite required",
+                        "match_kind": match["match_kind"], "blob": relative.as_posix(),
+                        "bundle_offset": bundle_offset, "path_id": tw.path_id,
+                        "old_resource_size": old_size, "new_resource_size": old_size,
+                        "original_resource_sha256": original_sha256, "new_resource_sha256": original_sha256,
+                        "source_payload_identical": True, "write_performed": False,
+                        "jp_source_blob": jp.source_blob, "jp_source_bundle_offset": jp.source_offset,
+                        "decoded_duration": identical_validation["duration"], "format_adjustment": None,
+                    })
+                    continue
+                if source_identical:
+                    validate_fsb5_payload_fmod(original_payload, jp.length, jp.signature.get("channels"), jp.signature.get("frequency"), old_size)
+                else:
+                    if resource_name not in resource_buffers:
+                        resource_buffers[resource_name] = bytearray(original)
+                        resource_flags[resource_name] = (int(getattr(env.file.files[resource_name], "flags", 0)), str(getattr(env.file.files[resource_name], "endian", ">")))
+                    buffer = resource_buffers[resource_name]
+                    new_offset = aligned(len(buffer))
+                    if new_offset > len(buffer):
+                        buffer.extend(b"\0" * (new_offset - len(buffer)))
+                    buffer.extend(jp.resource_bytes)
+                    resource.m_Offset = new_offset
+                    resource.m_Size = len(jp.resource_bytes)
                 clip.m_Length = jp.length
                 if tw.signature.get("channels") != jp.signature.get("channels"):
                     clip.m_Channels = jp.signature.get("channels")
@@ -2670,7 +2796,7 @@ def replace_matches(
                     {
                         "name": tw.name,
                         "container": tw.container,
-                        "status": "replaced",
+                        "status": "metadata_adjusted" if source_identical else "replaced",
                         "match_kind": match["match_kind"],
                         "blob": str(source_blob.relative_to(output_root)).replace("\\", "/"),
                         "bundle_offset": bundle_offset,
@@ -2678,6 +2804,9 @@ def replace_matches(
                         "old_resource_size": old_size,
                         "new_resource_size": len(jp.resource_bytes),
                         "new_resource_sha256": sha256_bytes(jp.resource_bytes),
+                        "original_resource_sha256": original_sha256,
+                        "source_payload_identical": source_identical,
+                        "write_performed": True,
                         "jp_source_blob": jp.source_blob,
                         "jp_source_bundle_offset": jp.source_offset,
                         "format_adjustment": reason if reason != "compatible" else None,
@@ -2691,6 +2820,7 @@ def replace_matches(
                     env.file.files[resource_name] = writer
                 env.file.is_changed = True
                 rebuilt = env.file.save("original")
+                emit_progress("replace", blob_index - 1, len(grouped), unit="blobs", operation="verify")
                 check = load_bundle(UnityPy, rebuilt)
                 after_objects = {(obj.assets_file.name, int(obj.path_id)): obj for obj in check.objects}
                 if after_objects.keys() != before_hashes.keys():
@@ -2740,6 +2870,7 @@ def replace_matches(
             json_dump(output_root / "backup-manifest.json", {"format": 1, "generated_utc": now_utc(), "files": backups})
             make_rollback(output_root, backups)
             fd, temp_path = tempfile.mkstemp(prefix=source_blob.name + ".", suffix=".tmp", dir=source_blob.parent)
+            emit_progress("replace", blob_index - 1, len(grouped), unit="blobs", operation="commit")
             try:
                 with os.fdopen(fd, "wb") as handle:
                     handle.write(output)
@@ -2747,6 +2878,7 @@ def replace_matches(
             finally:
                 Path(temp_path).unlink(missing_ok=True)
             print(f"Patched and verified: {relative} ({len(blob_matches)} selected objects)", flush=True)
+        emit_progress("replace", blob_index, len(grouped), unit="blobs", complete=blob_index == len(grouped), operation="verified")
     return reports, backups, warnings
 
 
@@ -2831,6 +2963,7 @@ def main() -> int:
             assert_not_running()
         UnityPy = load_unitypy()
         print("Indexing TW voice targets...", flush=True)
+        emit_progress("scan_tw", operation="index", enabled=not args.no_progress)
         # The first index build is parallel and read-only.  Subsequent test
         # runs select targets from JSON without reparsing every Unity bundle.
         try:
@@ -2838,7 +2971,7 @@ def main() -> int:
             workers = max(1, min(8, os.cpu_count() or 2))
             tw_index = get_index(
                 tw_data_root,
-                Path(__file__).resolve().parent,
+                package_root(),
                 "tw",
                 workers,
                 not args.no_progress,
@@ -2854,9 +2987,13 @@ def main() -> int:
                 tw_data_root, UnityPy, include, args.max_clips, not args.no_progress, priority, blob_filter
             )
         print(f"Selected {len(tw_targets)} target clips (maximum requested: {'all' if args.max_clips == 0 else args.max_clips}).", flush=True)
+        emit_progress("scan_tw", 1, 1, unit="index", complete=True, enabled=not args.no_progress)
+        if not tw_targets and output_game_root and not args.dry_run and not args.preserve_structure:
+            raise RuntimeError("No TW voice targets matched the requested filters; no output copy was created.")
         wanted_names = {target.name.casefold() for target in tw_targets}
+        emit_progress("scan_jp", enabled=not args.no_progress)
         if jp_data_root:
-            cache_parent = (args.cache_dir or Path(__file__).resolve().parent).expanduser().resolve()
+            cache_parent = (args.cache_dir or package_root()).expanduser().resolve()
             jp_cache_key = sha256_bytes(json.dumps({
                 "jp_manifest": manifest_info(jp_data_root),
                 "wanted_names": sorted(wanted_names),
@@ -2869,6 +3006,7 @@ def main() -> int:
                     f"Using cached JP scan ({len(jp_by_full)} selected clips); source manifest and target set match.",
                     flush=True,
                 )
+                emit_progress("scan_jp", len(jp_by_full), len(jp_by_full), unit="clips", complete=True, operation="cache", enabled=not args.no_progress)
             else:
                 print("Scanning matching JP resources (first run reads all JP .blob files)...", flush=True)
                 jp_by_full, jp_by_name, jp_stats = scan_jp(jp_data_root, UnityPy, not args.no_progress, wanted_names)
@@ -2880,9 +3018,10 @@ def main() -> int:
                 except OSError as exc:
                     print(f"WARN JP scan cache could not be saved: {exc}", file=sys.stderr)
         else:
-            cache_dir = (args.cache_dir or Path(__file__).resolve().parent).resolve()
+            cache_dir = (args.cache_dir or package_root()).resolve()
             print(f"Loading bundled resource cache: {cache_dir}", flush=True)
             jp_by_full, jp_by_name, jp_stats = load_resource_cache(cache_dir)
+            emit_progress("scan_jp", len(jp_by_full), len(jp_by_full), unit="clips", complete=True, operation="cache", enabled=not args.no_progress)
         matches: list[dict[str, Any]] = []
         unmatched_reports: list[dict[str, Any]] = []
         for target in tw_targets:
@@ -3046,6 +3185,7 @@ def main() -> int:
                     )
                 try:
                     manifest_existed_before_commit = False
+                    emit_progress("finalize", 0, 4, unit="steps", operation="commit")
                     manifest_existed_before_commit = (output_data_root / "backup-manifest.json").exists()
                     backups = commit_staged_blob_batch(output_data_root, staged_blobs, original_hashes)
                 except Exception as exc:
@@ -3081,23 +3221,29 @@ def main() -> int:
             # end table after bundle sizes change.
             reports, backups, warnings = replace_matches(output_data_root, matches, UnityPy)
             reports.extend(unmatched_reports)
+        emit_progress("finalize", 1, 4, unit="steps", operation="reports")
         skipped_quality = [item for item in reports if item.get("status") == "skipped_quality"]
         failed = [
             item for item in reports
-            if item.get("status") not in {"replaced", "already_identical", "skipped_quality"}
+            if item.get("status") not in {"replaced", "already_identical", "metadata_adjusted", "skipped_quality"}
         ]
         replaced = [item for item in reports if item.get("status") == "replaced"]
         already_identical = [item for item in reports if item.get("status") == "already_identical"]
-        satisfied_count = len(replaced) + len(already_identical)
+        metadata_adjusted = [item for item in reports if item.get("status") == "metadata_adjusted"]
+        unchanged_source_count = sum(item.get("source_payload_identical") is True for item in reports)
+        satisfied_count = len(replaced) + len(already_identical) + len(metadata_adjusted)
         processed_count = satisfied_count + len(skipped_quality)
         json_dump(output_data_root / "patch-report.json", {
             "format": 1,
             "generated_utc": now_utc(),
             "transaction_status": "committed_with_skips" if skipped_quality and not failed else "committed" if not failed else "failed",
             "replacement_mode": "in-place" if args.preserve_structure else "full-rebuild",
-            "prepared_count": len(replaced),
-            "committed_count": len(replaced),
+            "prepared_count": len(replaced) + len(metadata_adjusted),
+            "committed_count": len(replaced) + len(metadata_adjusted),
+            "audio_replaced_count": len(replaced),
             "already_identical_count": len(already_identical),
+            "metadata_adjusted_count": len(metadata_adjusted),
+            "unchanged_source_count": unchanged_source_count,
             "satisfied_count": satisfied_count,
             "skipped_count": len(skipped_quality),
             "skipped_quality_count": len(skipped_quality),
@@ -3106,6 +3252,7 @@ def main() -> int:
             "warnings": warnings,
         })
         write_replacement_summary(output_data_root, reports)
+        emit_progress("finalize", 2, 4, unit="steps", operation="backup_report")
         if not args.preserve_structure:
             json_dump(output_data_root / "backup-manifest.json", {"format": 1, "generated_utc": now_utc(), "files": backups})
             make_rollback(output_data_root, backups)
@@ -3113,7 +3260,7 @@ def main() -> int:
             "format": 1,
             "generated_utc": now_utc(),
             "jp_root": str(jp_game_root) if jp_game_root else None,
-            "cache_dir": str((args.cache_dir or Path(__file__).resolve().parent).resolve()) if not jp_data_root else None,
+            "cache_dir": str((args.cache_dir or package_root()).resolve()) if not jp_data_root else None,
             "tw_root": str(tw_game_root),
             "tw_data_root": str(tw_data_root),
             "output_root": str(output_root),
@@ -3125,11 +3272,13 @@ def main() -> int:
             "fsbank_cache": str(fsbank_cache_dir) if fsbank_cache_dir else None,
         })
         make_swap_helpers(output_root, tw_game_root)
+        emit_progress("finalize", 3, 4, unit="steps", operation="final_checks")
         print(f"Created patched copy: {output_root}")
         print(
             f"Replaced {len(replaced)} clips; already identical and verified "
             f"{len(already_identical)}; skipped for quality/capacity "
-            f"{len(skipped_quality)}; failed {len(failed)}."
+            f"{len(skipped_quality)}; metadata adjusted {len(metadata_adjusted)}; "
+            f"unchanged source audio {unchanged_source_count}; failed {len(failed)}."
         )
         if skipped_quality:
             print(
@@ -3144,6 +3293,8 @@ def main() -> int:
                 f" 原因：{'；'.join(reasons[:5])}"
             )
         print("The original JP/TW directories were not modified. Review patch-report.json and test offline first.")
+        emit_progress("finalize", 4, 4, unit="steps", complete=True)
+        emit_progress("done", 1, 1, complete=True)
         return 0
     except KeyboardInterrupt:
         print("Cancelled.", file=sys.stderr)

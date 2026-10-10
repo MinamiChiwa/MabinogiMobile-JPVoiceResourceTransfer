@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *.log
 .pytest_cache/
+.venv/
+**/.voice-index-cache/
+**/.jp-scan-cache/
 
 # Game clients, diagnostic copies, and downloaded dependencies
 diagnostic/

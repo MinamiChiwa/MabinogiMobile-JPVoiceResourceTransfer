@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest import mock
 
 
-PACKAGE_DIR = Path(__file__).resolve().parents[1] / "release" / "MabinogiMobile_JPVoiceResourceTransfer_0.1.5"
+PACKAGE_DIR = Path(__file__).resolve().parents[1] / "tools"
 import sys
 sys.path.insert(0, str(PACKAGE_DIR))
 import transfer_jp_voice_resources as transfer  # noqa: E402
@@ -27,6 +27,7 @@ class QualityFloorTests(unittest.TestCase):
                  mock.patch.object(transfer, "decode_fsb5_pcm", return_value=(pcm, 1, 44100)), \
                  mock.patch.object(transfer, "trim_zero_edges", return_value=(pcm, {"retained_duration": 1.0})), \
                  mock.patch.object(transfer, "load_fsbank_bridge", return_value=OversizedFsbank()), \
+                 mock.patch.object(transfer, "find_fsbank_dir", return_value=Path(temp)), \
                  mock.patch.object(transfer, "load_ima_encoder", return_value=TinyIma()), \
                  mock.patch.object(transfer, "fsbank_fingerprint", return_value=("test",)), \
                  mock.patch.object(transfer, "resample_pcm", return_value=pcm):

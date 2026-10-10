@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 
-PACKAGE_DIR = Path(__file__).resolve().parents[1] / "release" / "MabinogiMobile_JPVoiceResourceTransfer_0.1.5"
+PACKAGE_DIR = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(PACKAGE_DIR))
 import transfer_jp_voice_resources as transfer  # noqa: E402
 
@@ -137,6 +137,9 @@ class IdenticalPreparationTests(unittest.TestCase):
             self.assertEqual(hashes, {source.resolve(): transfer.sha256_bytes(original_bundle)})
             self.assertEqual(staged[source.resolve()].read_bytes(), updated_bundle)
             self.assertEqual(set(staged), set(hashes))
+            self.assertIn("source_payload_identical", reports[0])
+            self.assertFalse(reports[0]["source_payload_identical"])
+            self.assertNotEqual(reports[0]["original_resource_sha256"], reports[0]["new_resource_sha256"])
 
     def test_noop_only_blob_is_not_staged_or_added_to_commit_hashes(self):
         with tempfile.TemporaryDirectory(prefix="voice-identical-test-") as temp:
@@ -172,6 +175,10 @@ class IdenticalPreparationTests(unittest.TestCase):
                     object(), root / "stage",
                 )
             self.assertEqual([item["status"] for item in reports], ["already_identical"])
+            self.assertIn("source_payload_identical", reports[0])
+            self.assertTrue(reports[0]["source_payload_identical"])
+            self.assertEqual(reports[0]["original_resource_sha256"], reports[0]["new_resource_sha256"])
+            self.assertFalse(reports[0]["write_performed"])
             self.assertEqual(staged, {})
             self.assertEqual(hashes, {})
             self.assertEqual(warnings, [])
@@ -184,7 +191,7 @@ class IdenticalPreparationTests(unittest.TestCase):
 
 
 class IdenticalMainReportTests(unittest.TestCase):
-    def run_fixture(self, statuses, commit_error=None):
+    def run_fixture(self, statuses, commit_error=None, preserve_structure=True):
         temp = tempfile.TemporaryDirectory(prefix="voice-identical-report-")
         self.addCleanup(temp.cleanup)
         root = Path(temp.name)
@@ -197,7 +204,7 @@ class IdenticalMainReportTests(unittest.TestCase):
             jp_root=None, cache_dir=PACKAGE_DIR, tw_root=tw_root,
             output_copy=output_root, dry_run=False, max_clips=0,
             include=[], blob=[], priority=None, force=True, hardlink_copy=False,
-            preserve_structure=True, no_progress=True, report_dir=None,
+            preserve_structure=preserve_structure, no_progress=True, report_dir=None,
         )
         clip = fixture_clip()
         targets = []
@@ -212,6 +219,7 @@ class IdenticalMainReportTests(unittest.TestCase):
                 "name": name, "container": jp.container, "status": status,
                 "blob": "AssetPackages/0010.blob", "bundle_offset": 0,
                 "path_id": index, "reason": "injected fixture",
+                "source_payload_identical": status in {"already_identical", "metadata_adjusted"},
             })
         index_module = types.ModuleType("resource_voice_index")
         index_module.get_index = mock.Mock(return_value={})
@@ -224,13 +232,16 @@ class IdenticalMainReportTests(unittest.TestCase):
             mock.patch.object(transfer, "load_unitypy", return_value=object()),
             mock.patch.object(transfer, "targets_from_index", return_value=(targets, stats)),
             mock.patch.object(transfer, "load_resource_cache", return_value=({}, jp_by_name, stats)),
-            mock.patch.object(transfer, "replace_matches", return_value=(reports, {}, {}, [])),
+            mock.patch.object(transfer, "replace_matches", return_value=(reports, {}, {}, []) if preserve_structure else (reports, [], [])),
             mock.patch.object(transfer, "commit_staged_blob_batch", commit),
             mock.patch.dict(sys.modules, {"resource_voice_index": index_module}),
             contextlib.redirect_stdout(io.StringIO()),
             contextlib.redirect_stderr(io.StringIO()),
         ):
             result = transfer.main()
+        if not statuses and not preserve_structure:
+            self.assertFalse(output_root.exists(), "No matching targets must not create a game copy")
+            return result, {"transaction_status": "preflight_failed"}, "", commit
         report = json.loads((output_root / "appdata" / "patch-report.json").read_text(encoding="utf-8"))
         summary = (output_root / "appdata" / "replacement-summary.txt").read_text(encoding="utf-8")
         self.assertEqual((package_dir / "0010.blob").read_bytes(), b"source-unchanged")
@@ -243,9 +254,30 @@ class IdenticalMainReportTests(unittest.TestCase):
         self.assertEqual(report["prepared_count"], 0)
         self.assertEqual(report["already_identical_count"], 2)
         self.assertEqual(report["satisfied_count"], 2)
+        self.assertEqual(report["unchanged_source_count"], 2)
         self.assertIn("Replaced clips: 0", summary)
         self.assertIn("Already identical and fully verified (no rewrite): 2", summary)
+        self.assertIn("Source audio identical to original TW payload: 2", summary)
         commit.assert_called_once()
+
+    def test_full_rebuild_reports_source_equality_separately_from_metadata_changes(self):
+        result, report, summary, commit = self.run_fixture(
+            ["already_identical", "metadata_adjusted", "replaced"], preserve_structure=False,
+        )
+        self.assertEqual(result, 0, report)
+        self.assertEqual(report["committed_count"], 2)
+        self.assertEqual(report["audio_replaced_count"], 1)
+        self.assertEqual(report["already_identical_count"], 1)
+        self.assertEqual(report["metadata_adjusted_count"], 1)
+        self.assertEqual(report["unchanged_source_count"], 2)
+        self.assertEqual(report["satisfied_count"], 3)
+        self.assertIn("Source audio identical to original TW payload: 2", summary)
+        commit.assert_not_called()
+
+    def test_empty_full_rebuild_is_rejected_before_copying(self):
+        result, report, _, _ = self.run_fixture([], preserve_structure=False)
+        self.assertEqual(result, 2)
+        self.assertEqual(report["transaction_status"], "preflight_failed")
 
     def test_mixed_batch_counts_only_actual_replacements_as_committed(self):
         result, report, _, _ = self.run_fixture(["already_identical", "prepared"])

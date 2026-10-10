@@ -12,7 +12,7 @@ import unittest
 import wave
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = ROOT / "release" / "MabinogiMobile_JPVoiceResourceTransfer_0.1.5"
+PACKAGE = ROOT / "tools"
 sys.path.insert(0, str(ROOT / "tools"))
 import ima_fsb_encoder as encoder
 

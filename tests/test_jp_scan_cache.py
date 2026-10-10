@@ -5,7 +5,8 @@ import unittest
 from pathlib import Path
 
 
-PACKAGE = Path(__file__).resolve().parents[1] / "release" / "MabinogiMobile_JPVoiceResourceTransfer_0.1.5"
+PACKAGE = Path(__file__).resolve().parents[1] / "tools"
+sys.path.insert(0, str(PACKAGE))
 spec = importlib.util.spec_from_file_location("jp_cache_transfer", PACKAGE / "transfer_jp_voice_resources.py")
 transfer = importlib.util.module_from_spec(spec)
 assert spec.loader is not None

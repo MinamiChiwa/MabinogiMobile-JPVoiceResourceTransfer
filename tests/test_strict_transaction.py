@@ -9,8 +9,7 @@ from unittest import mock
 
 PACKAGE_DIR = (
     Path(__file__).resolve().parents[1]
-    / "release"
-    / "MabinogiMobile_JPVoiceResourceTransfer_0.1.5"
+    / "tools"
 )
 sys.path.insert(0, str(PACKAGE_DIR))
 

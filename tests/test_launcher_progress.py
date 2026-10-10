@@ -10,9 +10,9 @@ from unittest import mock
 
 
 LAUNCHER_PATH = (
-    Path(__file__).resolve().parents[1] / "release"
-    / "MabinogiMobile_JPVoiceResourceTransfer_0.1.5" / "resource_transfer_launcher.py"
+    Path(__file__).resolve().parents[1] / "tools" / "resource_transfer_launcher.py"
 )
+sys.path.insert(0, str(LAUNCHER_PATH.parent))
 spec = importlib.util.spec_from_file_location("launcher_progress", LAUNCHER_PATH)
 launcher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(launcher)
@@ -142,6 +142,25 @@ class LoggedProcessTests(unittest.TestCase):
         self.assertNotIn("\x1b", output)
         self.assertIn("退出码 2", output)
         self.assertIn("ERROR: expected diagnostic", log)
+
+    def test_structured_events_drive_cli_status_without_showing_json_payloads(self):
+        import resource_progress
+        with tempfile.TemporaryDirectory(prefix="voice-cli-protocol-") as directory:
+            root = Path(directory)
+            lines = [resource_progress.format_progress(resource_progress.ProgressEvent("scan_tw", 100, 100, unit="files", complete=True)),
+                     resource_progress.format_progress(resource_progress.ProgressEvent("copy", 2, 4, unit="files")),
+                     resource_progress.format_progress(resource_progress.ProgressEvent("replace", 1, 3, unit="blobs"))]
+            worker = "import time; " + "; ".join("print(" + repr(line) + ", flush=True); time.sleep(.05)" for line in lines)
+            stream = TerminalCapture()
+            with contextlib.redirect_stdout(stream):
+                code = launcher.run_logged_process([sys.executable, "-u", "-c", worker], root,
+                                                  root / "log", dict(os.environ), "", "en")
+            self.assertEqual(code, 0)
+            self.assertNotIn(resource_progress.PROGRESS_PREFIX, stream.getvalue())
+            self.assertIn("Copying TW client", stream.getvalue())
+            self.assertIn("2/4", stream.getvalue())
+            self.assertIn("65%", stream.getvalue())
+            self.assertIn(resource_progress.PROGRESS_PREFIX, (root / "log").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

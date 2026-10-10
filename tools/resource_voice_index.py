@@ -9,6 +9,8 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from resource_progress import emit_progress
+
 FORMAT = 1
 
 
@@ -21,7 +23,13 @@ def fingerprint(root: Path) -> dict[str, Any]:
         if p.is_file() and "obd-manifest" in p.name.lower()
     ]
     inventory = [
-        {"path": p.relative_to(root).as_posix(), "bytes": p.stat().st_size}
+        {
+            "path": p.relative_to(root).as_posix(),
+            "bytes": p.stat().st_size,
+            # A launcher update can replace a blob with another file of the
+            # same length. Content identity prevents stale index reuse.
+            "sha256": sha256_file(p),
+        }
         for p in iter_blob_files(root)
     ]
     if not inventory:
@@ -89,6 +97,8 @@ def write_index(path: Path, value: dict[str, Any]) -> None:
 
 
 def get_index(root: Path, package_dir: Path, role: str, workers: int, progress: bool = True) -> dict[str, Any]:
+    stage = "scan_" + role.lower()
+    emit_progress(stage, operation="fingerprint", enabled=progress)
     identity = fingerprint(root)
     digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     local = package_dir / ".voice-index-cache" / f"{role}-{digest}.json"
@@ -100,6 +110,7 @@ def get_index(root: Path, package_dir: Path, role: str, workers: int, progress: 
             if index.get("format") == FORMAT and index.get("fingerprint") == identity:
                 if progress:
                     print(f"{role.upper()}: using voice index ({index['clip_count']} voice objects); no full Unity scan.", flush=True)
+                emit_progress(stage, len(index["files"]), len(index["files"]), unit="files", complete=True, operation="cache", enabled=progress)
                 return index
         except (OSError, ValueError, KeyError):
             pass
@@ -107,16 +118,19 @@ def get_index(root: Path, package_dir: Path, role: str, workers: int, progress: 
     if progress:
         print(f"{role.upper()}: first scan, {len(tasks)} package files, {workers} workers. This reads only; index is reused next time.", flush=True)
     records: list[dict[str, Any]] = []
+    emit_progress(stage, 0, len(tasks), unit="files", enabled=progress)
     if workers == 1:
         iterator = map(index_blob, tasks)
         for i, record in enumerate(iterator, 1):
             records.append(record)
+            emit_progress(stage, i, len(tasks), unit="files", enabled=progress)
             if progress and (i == 1 or i % 25 == 0 or i == len(tasks)):
                 print(f"{role.upper()} scan files {i}/{len(tasks)} (not replacement count)", flush=True)
     else:
         with ProcessPoolExecutor(max_workers=workers) as pool:
             for i, record in enumerate(pool.map(index_blob, tasks), 1):
                 records.append(record)
+                emit_progress(stage, i, len(tasks), unit="files", enabled=progress)
                 if progress and (i == 1 or i % 25 == 0 or i == len(tasks)):
                     print(f"{role.upper()} scan files {i}/{len(tasks)} (not replacement count)", flush=True)
     if fingerprint(root) != identity:
@@ -133,6 +147,7 @@ def get_index(root: Path, package_dir: Path, role: str, workers: int, progress: 
         write_index(local, index)
     except OSError as exc:
         print(f"WARN index could not be saved: {exc}", flush=True)
+    emit_progress(stage, len(tasks), len(tasks), unit="files", complete=True, enabled=progress)
     return index
 
 
