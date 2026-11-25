@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 
-VOICE_TOKEN = re.compile(r"(?:^|[_/])vo(?:[_/]|$)", re.IGNORECASE)
+VOICE_TOKEN = re.compile(r"(?:^|[_/])(?:vo\d*|vox\d*|voice)(?:[_/]|$)", re.IGNORECASE)
 UNITY_SIGNATURE = b"UnityFS"
 AUDIO_SIGNATURES = (b"FSB5", b"ID3", b"OggS", b"RIFF", b"fLaC", b"BKHD")
 
@@ -73,7 +73,11 @@ def is_voice_clip(name: str, container: str) -> bool:
 
     name_lower = name.lower()
     container_lower = container.lower()
-    return "/voice/" in container_lower or bool(VOICE_TOKEN.search(name_lower))
+    return (
+        "/voice/" in container_lower
+        or bool(VOICE_TOKEN.search(name_lower))
+        or name_lower == "bgm_sub_quest_luasong"
+    )
 
 
 def safe_file_stem(name: str) -> str:

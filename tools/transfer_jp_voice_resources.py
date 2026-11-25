@@ -40,7 +40,11 @@ from portable_runtime import package_root
 
 
 UNITY_SIGNATURE = b"UnityFS"
-VOICE_TOKEN = re.compile(r"(?:^|[_/])vo(?:[_/]|$)", re.IGNORECASE)
+# Voice tokens: "_VO_" (cutscene/NPC lines), "_VO1" (numbered lines outside
+# /voice/), "_Vox"/"_Vox2" (boss combat vocals) and a standalone "_Voice".
+VOICE_TOKEN = re.compile(r"(?:^|[_/])(?:vo\d*|vox\d*|voice)(?:[_/]|$)", re.IGNORECASE)
+# Sung tracks without a voice token whose JP and TW vocals differ.
+EXTRA_VOICE_NAMES = frozenset({"bgm_sub_quest_luasong"})
 PACKAGE_DIRS = ("AssetPackages", "ResourcesPackage", "PlatformResourcePackages")
 SUPPORTED_ENGINE_PREFIX = "2021.3."
 ALIGNMENT = 16
@@ -147,7 +151,11 @@ def normalize_container(value: Any) -> str:
 
 
 def is_voice_clip(name: str, container: str) -> bool:
-    return "/voice/" in container.lower() or bool(VOICE_TOKEN.search(name))
+    return (
+        "/voice/" in container.lower()
+        or bool(VOICE_TOKEN.search(name))
+        or name.casefold() in EXTRA_VOICE_NAMES
+    )
 
 
 def sha256_bytes(data: bytes) -> str:

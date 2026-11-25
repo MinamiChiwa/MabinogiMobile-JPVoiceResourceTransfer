@@ -97,7 +97,7 @@ def npc_group(name: str) -> str:
 def audit(*, package: Path, index_path: Path, original: Path, installed: Path) -> dict[str, Any]:
     by_full, by_name = cache_records(package)
     index = json.loads(index_path.read_text(encoding="utf-8"))
-    if index.get("format") != 1:
+    if index.get("format") not in (1, 2):
         raise ValueError("unsupported voice index format")
     rows: list[dict[str, Any]] = []
     for file_record in index.get("files", []):

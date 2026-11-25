@@ -42,6 +42,9 @@ def copy_licenses(destination: Path, versions: dict[str, str]) -> None:
         for record in distribution.files or []:
             if not any(token in str(record).lower() for token in ("license", "copying", "notice")):
                 continue
+            # Compiled caches embed the build machine's absolute paths.
+            if "__pycache__" in str(record) or str(record).endswith((".pyc", ".pyo")):
+                continue
             source = distribution.locate_file(record)
             if source.is_file():
                 target = license_root / name / Path(str(record))
@@ -82,7 +85,7 @@ def build(output: Path) -> Path:
     copy_licenses(release, versions)
     source_hashes = {name: hashlib.sha256((TOOLS / name).read_bytes()).hexdigest() for name in SOURCES
                      if (TOOLS / name).is_file()}
-    (release / "BUILDINFO.json").write_text(json.dumps({"version": "0.1.6.2", "python": platform.python_version(),
+    (release / "BUILDINFO.json").write_text(json.dumps({"version": "0.1.7", "python": platform.python_version(),
           "platform": "Windows-x64", "dependencies": versions, "source_sha256": source_hashes},
           ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     executable = release / "JPVoiceTransfer.exe"
