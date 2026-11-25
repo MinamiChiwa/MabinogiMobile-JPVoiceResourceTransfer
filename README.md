@@ -34,7 +34,7 @@
 
 ## 开发者验证
 
-唯一维护源码位于 `tools/`，测试直接引用该目录。`release/0.1.5_nojp` 属于历史发布快照；修改工具后应重新构建，避免手工维护多份入口。
+唯一维护源码位于 `tools/`，测试直接引用该目录。发布包通过 GitHub Release 分发，不提交到仓库；修改工具后应重新构建。
 
 ```powershell
 python -m unittest discover -s tests -p 'test_*.py'
