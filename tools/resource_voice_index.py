@@ -12,7 +12,7 @@ from typing import Any
 from resource_progress import emit_progress
 
 # Bump when the voice selection rule changes so stale indexes are rebuilt.
-FORMAT = 2
+FORMAT = 3
 
 
 def fingerprint(root: Path) -> dict[str, Any]:

@@ -43,8 +43,12 @@ UNITY_SIGNATURE = b"UnityFS"
 # Voice tokens: "_VO_" (cutscene/NPC lines), "_VO1" (numbered lines outside
 # /voice/), "_Vox"/"_Vox2" (boss combat vocals) and a standalone "_Voice".
 VOICE_TOKEN = re.compile(r"(?:^|[_/])(?:vo\d*|vox\d*|voice)(?:[_/]|$)", re.IGNORECASE)
+# TW clips that must take a differently named JP clip.  The TW quest plays the
+# SNL copy of Lua's song; both clients ship that copy with the TW vocals, and
+# only JP's BGM_Sub_Quest_LuaSong carries the Japanese vocals.
+SOURCE_ALIASES = {"bgm_snl_sub_quest_luasong": "bgm_sub_quest_luasong"}
 # Sung tracks without a voice token whose JP and TW vocals differ.
-EXTRA_VOICE_NAMES = frozenset({"bgm_sub_quest_luasong"})
+EXTRA_VOICE_NAMES = frozenset({"bgm_sub_quest_luasong", *SOURCE_ALIASES})
 PACKAGE_DIRS = ("AssetPackages", "ResourcesPackage", "PlatformResourcePackages")
 SUPPORTED_ENGINE_PREFIX = "2021.3."
 ALIGNMENT = 16
@@ -1570,6 +1574,11 @@ def select_jp_clip(
     by_full: dict[tuple[str, str], JPClip],
     by_name: dict[str, list[JPClip]],
 ) -> tuple[JPClip | None, str]:
+    alias = SOURCE_ALIASES.get(name.casefold())
+    if alias is not None:
+        # The same-name JP clip exists but carries the TW vocals; never use it.
+        candidates = by_name.get(alias, [])
+        return (candidates[0], "alias") if len(candidates) == 1 else (None, "missing-or-ambiguous")
     exact = by_full.get((name.casefold(), container))
     if exact:
         return exact, "name+container"
@@ -2998,7 +3007,7 @@ def main() -> int:
         emit_progress("scan_tw", 1, 1, unit="index", complete=True, enabled=not args.no_progress)
         if not tw_targets and output_game_root and not args.dry_run and not args.preserve_structure:
             raise RuntimeError("No TW voice targets matched the requested filters; no output copy was created.")
-        wanted_names = {target.name.casefold() for target in tw_targets}
+        wanted_names = {SOURCE_ALIASES.get(target.name.casefold(), target.name.casefold()) for target in tw_targets}
         emit_progress("scan_jp", enabled=not args.no_progress)
         if jp_data_root:
             cache_parent = (args.cache_dir or package_root()).expanduser().resolve()

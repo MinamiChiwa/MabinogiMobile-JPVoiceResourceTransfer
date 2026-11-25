@@ -16,7 +16,9 @@ from typing import Any
 
 import UnityPy
 
-from transfer_jp_voice_resources import clip_signature, iter_unityfs_slices, normalize_container, resource_basename
+from transfer_jp_voice_resources import (
+    SOURCE_ALIASES, clip_signature, iter_unityfs_slices, normalize_container, resource_basename,
+)
 
 
 def sha256(data: bytes) -> str:
@@ -53,6 +55,12 @@ def select_cache_record(
     by_full: dict[tuple[str, str], dict[str, Any]],
     by_name: dict[str, list[dict[str, Any]]],
 ) -> tuple[dict[str, Any] | None, str]:
+    alias = SOURCE_ALIASES.get(name.casefold())
+    if alias is not None:
+        candidates = by_name.get(alias, [])
+        if len(candidates) == 1:
+            return candidates[0], "alias"
+        return None, "ambiguous-name" if candidates else "missing-source"
     exact = by_full.get((name.casefold(), normalize_container(container)))
     if exact is not None:
         return exact, "name+container"
@@ -97,7 +105,7 @@ def npc_group(name: str) -> str:
 def audit(*, package: Path, index_path: Path, original: Path, installed: Path) -> dict[str, Any]:
     by_full, by_name = cache_records(package)
     index = json.loads(index_path.read_text(encoding="utf-8"))
-    if index.get("format") not in (1, 2):
+    if index.get("format") not in (1, 2, 3):
         raise ValueError("unsupported voice index format")
     rows: list[dict[str, Any]] = []
     for file_record in index.get("files", []):
